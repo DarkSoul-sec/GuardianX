@@ -1,0 +1,205 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* GuardianX Design Tokens (Tailwind v4 @theme)                        */
+/* Mirrors src/theme.ts — keep in sync.                                */
+/* ------------------------------------------------------------------ */
+
+@theme {
+  --color-canvas: #030616;
+  --color-surface: #050a18;
+  --color-raised: #0b1226;
+
+  /* Sci-fi neutral scale — deep blue-black ramp. */
+  --color-slate-50: #f4f7fe;
+  --color-slate-100: #e6edf9;
+  --color-slate-200: #c4d3ec;
+  --color-slate-300: #8ba0c8;
+  --color-slate-400: #5b6b96;
+  --color-slate-500: #33446e;
+  --color-slate-600: #1e2a4d;
+  --color-slate-700: #131c38;
+  --color-slate-800: #0b1226;
+  --color-slate-900: #060b1d;
+  --color-slate-950: #030616;
+
+  /* Neon cyan primary. */
+  --color-cyan-300: #7df5ff;
+  --color-cyan-400: #38e0ff;
+  --color-cyan-500: #00cfff;
+  --color-cyan-600: #00a8d8;
+  --color-cyan-700: #0083b3;
+
+  --color-primary-400: #38e0ff;
+  --color-primary-500: #00cfff;
+  --color-primary-600: #00a8d8;
+  --color-primary-700: #0083b3;
+
+  --color-severity-critical: #ff3b5c;
+  --color-severity-high: #ff8a3b;
+  --color-severity-medium: #ffd23b;
+  --color-severity-low: #22e59a;
+  --color-severity-unknown: #5b6b96;
+
+  --color-status-pending: #5b6b96;
+  --color-status-running: #00cfff;
+  --color-status-completed: #22e59a;
+  --color-status-failed: #ff3b5c;
+  --color-status-open: #ff3b5c;
+  --color-status-in-progress: #ffd23b;
+  --color-status-resolved: #22e59a;
+  --color-status-false-positive: #5b6b96;
+  --color-status-accepted-risk: #8b5cf6;
+
+  --font-display: "Orbitron", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Rajdhani", "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-raised: 0 12px 40px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 24px rgba(0, 207, 255, 0.35);
+  --shadow-glow-soft: 0 0 12px rgba(0, 207, 255, 0.18);
+  --shadow-glow-violet: 0 0 24px rgba(139, 92, 246, 0.35);
+
+  --animate-shimmer: shimmer 2.2s linear infinite;
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  @keyframes scanline {
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(100vh);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                               */
+/* ------------------------------------------------------------------ */
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  @apply bg-canvas text-slate-100;
+  font-family: var(--font-sans);
+  letter-spacing: 0.01em;
+}
+
+::selection {
+  background: rgba(0, 207, 255, 0.35);
+  color: #ffffff;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #1e2a4d, #0b1226);
+  border-radius: 8px;
+  border: 1px solid rgba(0, 207, 255, 0.15);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #33446e;
+}
+
+/* ------------------------------------------------------------------ */
+/* Components                                                         */
+/* ------------------------------------------------------------------ */
+
+@layer components {
+  /* Glass HUD panel: translucent card with a neon hairline + top glow. */
+  .panel {
+    position: relative;
+    border-radius: 1rem;
+    border: 1px solid rgba(139, 160, 200, 0.14);
+    background: linear-gradient(
+      160deg,
+      rgba(11, 18, 38, 0.82),
+      rgba(5, 10, 24, 0.88)
+    );
+    backdrop-filter: blur(10px);
+    box-shadow:
+      inset 0 1px 0 rgba(56, 224, 255, 0.12),
+      inset 0 0 40px rgba(0, 168, 216, 0.04),
+      0 20px 60px -24px rgba(0, 0, 0, 0.85);
+  }
+
+  .panel-hover {
+    transition:
+      border-color 200ms ease,
+      box-shadow 200ms ease,
+      transform 200ms ease;
+  }
+
+  .panel-hover:hover {
+    border-color: rgba(56, 224, 255, 0.4);
+    box-shadow:
+      inset 0 1px 0 rgba(56, 224, 255, 0.2),
+      0 0 28px rgba(0, 207, 255, 0.14),
+      0 24px 60px -24px rgba(0, 0, 0, 0.9);
+  }
+
+  /* Neon gradient headline text. */
+  .neon-text {
+    background: linear-gradient(120deg, #7df5ff 0%, #38e0ff 35%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* HUD eyebrow: tiny mono label with corner ticks. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--color-cyan-400);
+  }
+
+  .glow-text {
+    text-shadow: 0 0 18px rgba(0, 207, 255, 0.55);
+  }
+
+  /* Neon input field. */
+  .field {
+    width: 100%;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(139, 160, 200, 0.22);
+    background: rgba(3, 6, 22, 0.7);
+    padding: 0.75rem 1rem;
+    color: #ffffff;
+    outline: none;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  .field::placeholder {
+    color: var(--color-slate-500);
+  }
+
+  .field:focus {
+    border-color: rgba(0, 207, 255, 0.8);
+    box-shadow: 0 0 0 3px rgba(0, 207, 255, 0.15);
+  }
+}

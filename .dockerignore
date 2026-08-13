@@ -1,0 +1,26 @@
+# Keep Docker build contexts small and keep secrets out of images.
+.git
+**/.git
+
+# Secrets and local config
+.env
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies / build output
+node_modules
+**/node_modules
+dist
+**/dist
+.venv
+**/.venv
+__pycache__
+**/__pycache__
+.pytest_cache
+.coverage
+
+# Local artifacts
+*.log
+*.pyc
+Screenshots

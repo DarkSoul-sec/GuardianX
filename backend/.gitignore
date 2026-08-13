@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# IDE/editor
+.vscode/
+.idea/
+
+# Local runtime/app artifacts
+*.log
+*.sqlite3
+scan.xml
+127.0.0.1
+
+# Test and coverage artifacts
+.coverage
+htmlcov/

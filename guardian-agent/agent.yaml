@@ -1,0 +1,56 @@
+# Guardian Agent configuration.
+# Create ./data and ./logs automatically if missing. Copy to where the agent
+# runs and pass with `guardian-agent -c agent.yaml`.
+
+# Base URL of the Guardian platform API (no trailing slash).
+server_url: "http://127.0.0.1:8000/api"
+
+# Human-readable name of this endpoint; shown in the GuardianX Endpoints page.
+agent_name: "ubuntu-workstation"
+
+# Provisioning token issued by the platform admin. Used once, at registration.
+# The agent never stores or sends a username/password.
+registration_token: ""
+
+# Verify the TLS certificate of server_url. Set false only for a trusted
+# development endpoint.
+tls_verify: true
+
+# Seconds between full collector sweeps. Individual collectors can override.
+scan_interval: 60
+
+# Seconds between heartbeat updates.
+heartbeat_interval: 60
+
+# Which collectors are active. Any name not listed is disabled.
+enabled_collectors:
+  - process
+  - system_health
+  - logins
+  - services
+  - file_integrity
+  - usb
+  - startup
+
+# Optional per-collector tuning (interval minimum 10s).
+collectors:
+  process:
+    interval_seconds: 120
+  file_integrity:
+    interval_seconds: 900
+
+# Structured logging. Level: DEBUG|INFO|WARNING|ERROR. Format: json|text.
+log_level: "INFO"
+log_format: "json"
+log_dir: "./logs"
+
+# Local durable queue backing file.
+queue_path: "./data/agent-events.db"
+# Persisted identity and tokens.
+state_path: "./data/agent-state.json"
+
+# Transport tuning.
+connect_timeout: 5.0
+request_timeout: 15.0
+max_retries: 3
+batch_size: 50
