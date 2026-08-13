@@ -1,0 +1,371 @@
+#!/usr/bin/env bash
+#
+# GuardianX management CLI.
+#
+# Usage:
+#   ./guardianx start           start the stack (builds if needed)
+#   ./guardianx stop            stop the stack (keeps data)
+#   ./guardianx restart         stop then start
+#   ./guardianx status          show service status + health
+#   ./guardianx logs [service]  follow logs (all services or one)
+#   ./guardianx update          rebuild + restart (preserves DB volume)
+#   ./guardianx doctor          full diagnostics
+#   ./guardianx uninstall       stop + remove containers (keeps DB by default)
+#
+# All operations are scoped to the GuardianX Compose project ONLY. No unrelated
+# container is ever touched.
+#
+set -euo pipefail
+
+GX_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/guardianx.lib.sh"
+# shellcheck source=guardianx.lib.sh
+. "$GX_LIB"
+
+usage() {
+    cat <<'EOF'
+Usage: ./guardianx <command> [service]
+
+Commands:
+  start           Start the GuardianX stack
+  stop            Stop the stack (keeps database data)
+  restart         Restart the stack
+  status          Show service status and health
+  logs [service]  Follow logs (all services, or: backend, frontend, postgres)
+  update          Rebuild images and restart (preserves database volume)
+  doctor          Run full diagnostics
+  uninstall       Stop and remove containers (database preserved by default)
+EOF
+}
+
+# --------------------------------------------------------------------------- #
+# start
+# --------------------------------------------------------------------------- #
+cmd_start() {
+    step "Starting GuardianX"
+    if [[ ! -f "$ENV_FILE" ]]; then
+        gx_log "No $ENV_FILE found. Running the installer instead."
+        "$GX_ROOT/install.sh"
+        return
+    fi
+    # Validate secrets before starting.
+    local missing=0
+    for v in SECRET_KEY POSTGRES_PASSWORD POSTGRES_MIGRATE_PASSWORD POSTGRES_APP_PASSWORD; do
+        if ! gx_validate_secret "$v" "$(gx_env_get "$ENV_FILE" "$v")"; then
+            missing=1
+        fi
+    done
+    if [[ "$missing" -ne 0 ]]; then
+        fail_step "Configuration"
+        gx_log "Run: ./install.sh  (regenerates .env if missing)"
+        exit 1
+    fi
+    gx_compose up -d --build
+    done_step "Started"
+    gx_compose_ps
+    printf '\nGuardianX is starting — check status with: ./guardianx status\n'
+}
+
+# --------------------------------------------------------------------------- #
+# stop
+# --------------------------------------------------------------------------- #
+cmd_stop() {
+    step "Stopping GuardianX"
+    gx_compose stop
+    done_step "Stopped"
+    printf 'Data preserved. Database volume is intact.\n'
+}
+
+# --------------------------------------------------------------------------- #
+# restart
+# --------------------------------------------------------------------------- #
+cmd_restart() {
+    step "Restarting GuardianX"
+    gx_compose stop
+    cmd_start
+}
+
+# --------------------------------------------------------------------------- #
+# status
+# --------------------------------------------------------------------------- #
+cmd_status() {
+    gx_compose_ps
+    printf '\nContainers (project-scoped):\n'
+    gx_containers || true
+}
+
+# --------------------------------------------------------------------------- #
+# logs
+# --------------------------------------------------------------------------- #
+cmd_logs() {
+    local svc="${1:-}"
+    if [[ -n "$svc" ]]; then
+        case "$svc" in
+            backend|frontend|postgres|db-init)
+                gx_compose logs -f --tail=100 "$svc"
+                ;;
+            *)
+                gx_log "Unknown service '$svc'. Use: backend, frontend, postgres"
+                exit 1
+                ;;
+        esac
+    else
+        gx_compose logs -f --tail=50
+    fi
+}
+
+# --------------------------------------------------------------------------- #
+# update
+# --------------------------------------------------------------------------- #
+cmd_update() {
+    step "Updating GuardianX"
+
+    # Warn about uncommitted changes but do not block.
+    if command -v git >/dev/null 2>&1 && [[ -d "$GX_ROOT/.git" ]]; then
+        if [[ -n "$(git -C "$GX_ROOT" status --porcelain 2>/dev/null)" ]]; then
+            gx_warn "Uncommitted local changes detected"
+            git -C "$GX_ROOT" status --short 2>/dev/null | head -5 || true
+            printf 'Continuing rebuild using current files.\n\n'
+        fi
+    fi
+
+    # Rebuild + pull images.
+    gx_log "Pulling base images..."
+    gx_compose pull postgres 2>&1 || gx_warn "pull postgres (non-fatal)"
+    gx_log "Building GuardianX images..."
+    if ! gx_compose build --pull 2>&1; then
+        gx_warn "--pull failed (network/registry issue); retrying with cached images"
+        gx_compose build 2>&1 || { fail_step "build"; exit 1; }
+    fi
+
+    # Restart only GuardianX services (no down -v — volume preserved).
+    gx_log "Restarting services..."
+    gx_compose up -d 2>&1 || { fail_step "start"; exit 1; }
+
+    # Wait for health.
+    if wait_update_health; then
+        done_step "Update complete"
+        summary_port
+    else
+        fail_step "Health check"
+        gx_log "Check: ./guardianx logs"
+        exit 1
+    fi
+}
+
+wait_update_health() {
+    local deadline=$(( $(date +%s) + 240 ))
+    # postgres
+    while true; do
+        gx_wait_service_healthy postgres >/dev/null 2>&1 && break
+        [[ $(date +%s) -ge $deadline ]] && return 1
+        sleep 2
+    done
+    # db-init (one-shot) — tolerate already-completed
+    gx_wait_dbinit 120 >/dev/null 2>&1 || true
+    # backend
+    while true; do
+        gx_wait_service_healthy backend >/dev/null 2>&1 && break
+        [[ $(date +%s) -ge $deadline ]] && return 1
+        sleep 2
+    done
+    # frontend
+    gx_wait_service_healthy frontend >/dev/null 2>&1 || return 1
+    return 0
+}
+
+summary_port() {
+    local port
+    port="$(gx_env_get "$ENV_FILE" HTTP_PORT)"; port="${port:-8080}"
+    printf '\nGuardianX updated — running at http://localhost:%s\n' "$port"
+}
+
+# --------------------------------------------------------------------------- #
+# doctor
+# --------------------------------------------------------------------------- #
+cmd_doctor() {
+    local rc=0
+
+    printf 'GuardianX Doctor\n'
+    printf '────────────────────────────────\n'
+
+    # Docker
+    local docker_state compose_state
+    docker_state="$(gx_check_docker)"
+    compose_state="$(gx_check_compose)"
+    [[ "$docker_state" == "ok" ]] && printf 'Docker             %s\n' "✓" || { printf 'Docker             %s\n' "✗"; rc=1; }
+    [[ "$compose_state" == ok* ]] && printf 'Docker Compose     %s\n' "✓" || { printf 'Docker Compose     %s\n' "✗"; rc=1; }
+
+    # Configuration
+    if [[ -f "$ENV_FILE" ]]; then
+        printf 'Configuration      %s\n' "✓"
+    else
+        printf 'Configuration      %s (run ./install.sh)\n' "✗"
+        rc=1
+        printf '────────────────────────────────\n'
+        printf 'GuardianX is NOT healthy.\n'
+        return $rc
+    fi
+
+    # Secrets
+    local secrets_ok=true
+    for v in SECRET_KEY POSTGRES_PASSWORD POSTGRES_MIGRATE_PASSWORD POSTGRES_APP_PASSWORD; do
+        if ! gx_validate_secret "$v" "$(gx_env_get "$ENV_FILE" "$v")"; then
+            secrets_ok=false
+        fi
+    done
+    [[ "$secrets_ok" == "true" ]] && printf 'Secrets            %s\n' "✓" || { printf 'Secrets            %s (placeholder/weak detected)\n' "✗"; rc=1; }
+
+    # Determine whether the GuardianX stack is running (project-scoped).
+    local running=0
+    if gx_compose ps >/dev/null 2>&1; then
+        running=1
+    fi
+
+    # Port
+    local port
+    port="$(gx_env_get "$ENV_FILE" HTTP_PORT)"; port="${port:-8080}"
+    if gx_port_free "$port"; then
+        printf 'Port %-14s %s\n' "$port (free)" "✓"
+    elif [[ "$running" -eq 1 ]]; then
+        # Port is in use by the running stack (expected).
+        printf 'Port %-14s %s\n' "$port" "✓ (GuardianX is listening)"
+    else
+        printf 'Port %-14s %s\n' "$port" "✗ (in use by another process)"
+        rc=1
+    fi
+
+    # Container services — only if stack is running.
+    if [[ "$running" -eq 1 ]]; then
+        # PostgreSQL
+        if gx_wait_service_healthy postgres 5 >/dev/null 2>&1; then
+            printf 'PostgreSQL         %s\n' "✓"
+        else
+            printf 'PostgreSQL         %s\n' "✗"
+            rc=1
+        fi
+
+        # Database initialization (db-init one-shot)
+        if gx_dbinit_done >/dev/null 2>&1; then
+            printf 'Database init      %s\n' "✓"
+        else
+            printf 'Database init      %s\n' "✗"
+            rc=1
+        fi
+
+        # Migrations: check alembic version inside backend.
+        if gx_wait_service_healthy backend 5 >/dev/null 2>&1; then
+            printf 'Backend            %s\n' "✓"
+            # Migrations complete if backend is healthy (entrypoint runs alembic first).
+            printf 'Migrations         %s\n' "✓ (via backend entrypoint)"
+        else
+            printf 'Backend            %s\n' "✗"
+            printf 'Migrations         %s\n' "✗"
+            rc=1
+        fi
+
+        # Frontend
+        if gx_wait_service_healthy frontend 5 >/dev/null 2>&1; then
+            printf 'Frontend           %s\n' "✓"
+        else
+            printf 'Frontend           %s\n' "✗"
+            rc=1
+        fi
+
+        # Nmap (inside the backend container)
+        if gx_compose exec -T backend which nmap >/dev/null 2>&1; then
+            local nmap_ver
+            nmap_ver="$(gx_compose exec -T backend nmap --version 2>/dev/null | head -1 || true)"
+            printf 'Nmap               %s %s\n' "✓" "${nmap_ver:-}"
+        else
+            printf 'Nmap               %s (not found in backend image)\n' "✗"
+            rc=1
+        fi
+    else
+        printf 'PostgreSQL         %s (stack not running)\n' "✗"
+        printf 'Database init      %s (stack not running)\n' "✗"
+        printf 'Backend            %s (stack not running)\n' "✗"
+        printf 'Migrations         %s (stack not running)\n' "✗"
+        printf 'Frontend           %s (stack not running)\n' "✗"
+        printf 'Nmap               %s (stack not running)\n' "✗"
+        rc=1
+    fi
+
+    printf '────────────────────────────────\n'
+    if [[ "$rc" -eq 0 ]]; then
+        printf 'GuardianX is healthy.\n'
+    else
+        printf 'GuardianX has issues — see above.\n'
+    fi
+    return $rc
+}
+
+# --------------------------------------------------------------------------- #
+# uninstall
+# --------------------------------------------------------------------------- #
+cmd_uninstall() {
+    step "GuardianX uninstall"
+
+    # Stop + remove ONLY GuardianX containers/networks.
+    gx_log "Stopping GuardianX services..."
+    gx_compose down 2>&1 || true
+
+    # Detect the database volume name and ask before deleting.
+    local vol
+    vol="$(docker volume ls --format '{{.Name}}' 2>/dev/null \
+        | grep -E "^${PROJECT_NAME}_postgres_data$" || true)"
+
+    if [[ -n "$vol" ]]; then
+        printf '\n' >&2
+        printf 'A database volume still exists: %s\n' "$vol" >&2
+        printf 'This contains all of your GuardianX data.\n' >&2
+        printf '\nTo delete the database data permanently, type: DELETE\n' >&2
+        printf 'To keep your data, just press ENTER.\n' >&2
+        printf '\n> ' >&2
+        read -r confirm
+        if [[ "${confirm:-}" == "DELETE" ]]; then
+            gx_log "Removing database volume $vol..."
+            docker volume rm "$vol" 2>&1 || gx_warn "volume already gone"
+            printf 'Database volume deleted.\n'
+        else
+            printf 'Database volume preserved: %s\n' "$vol"
+        fi
+    else
+        printf 'No database volume found.\n'
+    fi
+
+    done_step "Uninstall"
+    printf 'GuardianX containers and networks have been removed.\n'
+    printf 'The configuration file %s still exists.\n' "$ENV_FILE"
+    printf 'Remove it manually if you want a fully clean slate:\n'
+    printf '  rm -f %s\n' "$ENV_FILE"
+}
+
+# --------------------------------------------------------------------------- #
+# main
+# --------------------------------------------------------------------------- #
+main() {
+    local cmd="${1:-}"
+    if [[ -z "$cmd" ]]; then
+        usage
+        exit 0
+    fi
+    shift || true
+
+    case "$cmd" in
+        start)     cmd_start ;;
+        stop)      cmd_stop ;;
+        restart)   cmd_restart ;;
+        status)    cmd_status ;;
+        logs)      cmd_logs "$@" ;;
+        update)    cmd_update ;;
+        doctor)    cmd_doctor ;;
+        uninstall) cmd_uninstall ;;
+        -h|--help|help) usage ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

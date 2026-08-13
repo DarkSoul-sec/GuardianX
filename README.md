@@ -115,31 +115,57 @@ for the Vulnerability Intelligence Center.
 
 # 🚀 Quick Start
 
-## Docker (one command)
+## Requirements
+
+- **Docker** ([get Docker](https://docs.docker.com/get-docker/))
+- **Docker Compose** (ships with Docker; or install the Compose plugin)
+
+> No Python, PostgreSQL, Node.js, npm, or Nmap installation is required on the
+> host — everything runs inside containers, including Nmap and the scan engine.
+
+## One-command install
 
 ```bash
-cd infrastructure/compose
-./start.sh
+git clone <repository>
+cd GuardianX
+./install.sh
 ```
 
-> On first run `start.sh` creates `.env` from `.env.example` and refuses to
-> start while `SECRET_KEY` or any database password is still a placeholder. Set
-> a strong `SECRET_KEY` plus `POSTGRES_PASSWORD`, `POSTGRES_MIGRATE_PASSWORD`
-> and `POSTGRES_APP_PASSWORD`, then run it again.
->
-> Web UI: `http://localhost:8080` · API docs: `http://localhost:8080/api/docs`
->
-> GuardianX uses three PostgreSQL roles (least privilege): a bootstrap
-> administrator (provisioning only), `guardianx_migrate` (database owner, runs
-> `alembic`), and `guardianx_app` (DML only — the running application never
-> gets a superuser). Provisioning is automatic via a `db-init` service.
->
-> The shipped `.env.example` defaults `DEBUG=true` so the stack boots without
-> an SMTP server (emails are logged to the backend console). For production,
-> set `DEBUG=false` and configure SMTP — see
-> [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+`install.sh` checks Docker, generates strong random secrets, validates the
+configuration, builds and starts the stack, waits for all health checks, and
+prints the application URL. Open:
 
-## Manual development
+- Web UI: `http://localhost:8080`
+- API docs: `http://localhost:8080/api/docs`
+
+### Management
+
+Once installed, use the root-level management CLI:
+
+```bash
+./guardianx status      # show service health
+./guardianx logs        # follow all logs
+./guardianx logs backend
+./guardianx update      # rebuild + migrate (preserves your database)
+./guardianx doctor      # full diagnostics
+./guardianx stop        # stop (keeps database data)
+./guardianx uninstall   # stop + remove (database preserved by default)
+```
+
+GuardianX uses **three PostgreSQL roles** (least privilege): a bootstrap
+administrator (provisioning only), `guardianx_migrate` (database owner, runs
+`alembic`), and `guardianx_app` (DML only — the running application never gets a
+superuser). Provisioning is automatic. The default local edition sets
+`DEBUG=true` and does **not** require SMTP (emails are logged to the backend
+console). For production, set `DEBUG=false` and configure SMTP — see
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+---
+
+## Development / Contributors
+
+> Developers should use the native tooling below. **End users do not need any of
+> these dependencies** — the Docker installation above is self-contained.
 
 ### Backend
 
