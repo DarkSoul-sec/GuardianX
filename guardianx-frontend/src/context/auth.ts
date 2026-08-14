@@ -9,6 +9,7 @@ export interface AuthContextType {
   authMode: string;
   login: (credentials: LoginRequest) => Promise<void>;
   logout: () => void;
+  markInitialized: () => void;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);

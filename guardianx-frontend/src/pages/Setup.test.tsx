@@ -16,6 +16,7 @@ vi.mock("@/hooks/useAuth", () => ({
     loading: false,
     initialized: false,
     authMode: "local",
+    markInitialized: vi.fn(),
   }),
 }));
 

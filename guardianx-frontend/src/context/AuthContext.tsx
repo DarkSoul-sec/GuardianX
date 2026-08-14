@@ -60,6 +60,10 @@ export function AuthProvider({ children }: Props) {
     setAuthenticated(false);
   }
 
+  function markInitialized() {
+    setInitialized(true);
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -69,6 +73,7 @@ export function AuthProvider({ children }: Props) {
         authMode,
         login,
         logout,
+        markInitialized,
       }}
     >
       {children}

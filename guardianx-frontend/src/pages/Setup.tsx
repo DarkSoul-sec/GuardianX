@@ -7,7 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { setupAdmin } from "@/services/auth";
 
 export default function Setup() {
-  const { authenticated, loading, initialized } = useAuth();
+  const { authenticated, loading, initialized, markInitialized } = useAuth();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +20,31 @@ export default function Setup() {
     return (
       <div className="flex h-screen items-center justify-center bg-canvas">
         <Loader />
+      </div>
+    );
+  }
+
+  // Show the success screen after a completed setup even though the context
+  // has already flipped `initialized` to true, so the user can click
+  // "Continue to Login" themselves. Without this ordering the immediate
+  // `initialized` redirect below would skip the success screen entirely.
+  if (done) {
+    return (
+      <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas px-4">
+        <HudBackground />
+        <div className="panel relative z-10 w-full max-w-md p-10 text-center shadow-raised">
+          <p className="eyebrow mb-2 text-center">Secure Access Gateway</p>
+          <h1 className="font-display text-2xl font-bold tracking-[0.18em] text-emerald-400 neon-text">
+            GuardianX Initialized
+          </h1>
+          <p className="mt-4 text-slate-400">
+            Your local GuardianX instance is ready. Sign in with your
+            administrator credentials to reach the dashboard.
+          </p>
+          <Link to="/login" className="mt-6 block w-full">
+            <Button className="w-full">Continue to Login</Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -40,6 +65,11 @@ export default function Setup() {
     try {
       setLoadingForm(true);
       await setupAdmin({ username, password });
+      // The backend has now created the administrator, so the installation is
+      // initialized. Update the shared auth state immediately so a later
+      // navigation to /login is not bounced back to /setup by the stale
+      // `initialized=false` captured on page load.
+      markInitialized();
       setDone(true);
     } catch (err: unknown) {
       const detail =
@@ -49,27 +79,6 @@ export default function Setup() {
     } finally {
       setLoadingForm(false);
     }
-  }
-
-  if (done) {
-    return (
-      <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas px-4">
-        <HudBackground />
-        <div className="panel relative z-10 w-full max-w-md p-10 text-center shadow-raised">
-          <p className="eyebrow mb-2 text-center">Secure Access Gateway</p>
-          <h1 className="font-display text-2xl font-bold tracking-[0.18em] text-emerald-400 neon-text">
-            GuardianX Initialized
-          </h1>
-          <p className="mt-4 text-slate-400">
-            Your local GuardianX instance is ready. Sign in with your
-            administrator credentials to reach the dashboard.
-          </p>
-          <Link to="/login" className="mt-6 block w-full">
-            <Button className="w-full">Continue to Login</Button>
-          </Link>
-        </div>
-      </div>
-    );
   }
 
   return (
