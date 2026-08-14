@@ -53,5 +53,30 @@ export const QUERY_KEYS = {
   activityLogins: ["activity", "logins"] as const,
 } as const;
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api";
+/**
+ * Resolve the backend API base URL from the build-time VITE_API_URL value.
+ *
+ * The base URL is the SINGLE place the `/api` prefix is owned; every service
+ * calls the shared `api` axios instance with relative paths (e.g.
+ * `/auth/setup-status`), so the full request becomes `${API_BASE_URL}/auth/...`.
+ *
+ * An empty/missing value MUST fall back to a relative `/api` (never an empty
+ * string and never an absolute `http://127.0.0.1:8000/api` origin). A relative
+ * `/api` works through whatever proxy fronts the backend:
+ *   - Docker: nginx proxies `/api/` -> backend:8000
+ *   - dev:    the Vite dev-server proxy forwards `/api` -> backend:8000
+ *
+ * If the base URL were empty (e.g. `??` keeps `""`), every request would miss
+ * the `/api` prefix (`/auth/setup-status`), 404 at the backend router, and the
+ * AuthContext "backend unreachable" fallback would set `initialized=true` —
+ * hiding the first-run Setup screen on a fresh install and showing Login
+ * instead. Guarding the empty case here is the root-cause fix.
+ */
+export function resolveApiBaseUrl(raw: string | undefined): string {
+  if (raw && raw.trim() !== "") {
+    return raw.trim();
+  }
+  return "/api";
+}
+
+export const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_URL);
