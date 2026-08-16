@@ -110,6 +110,8 @@ export PGPASSWORD="$POSTGRES_PASSWORD"
 
 psql "${PSQL_OPTS[@]}" \
   --set=db_name="$POSTGRES_DB" \
+  --set=bootstrap_user="$POSTGRES_USER" \
+  --set=bootstrap_password="$POSTGRES_PASSWORD" \
   --set=migrate_user="$POSTGRES_MIGRATE_USER" \
   --set=migrate_password="$POSTGRES_MIGRATE_PASSWORD" \
   --set=app_user="$POSTGRES_APP_USER" \
@@ -122,6 +124,11 @@ BEGIN
   END IF;
 END
 $$;
+
+-- 0. Resynchronise the bootstrap role and its password to the current env so
+--    a stale volume (roles still protected by an older .env) can be repaired
+--    in place by a plain `docker compose run --rm db-init`.
+SELECT format('ALTER ROLE %I LOGIN SUPERUSER PASSWORD %L', :'bootstrap_user', :'bootstrap_password') \gexec
 
 -- 1. Create roles if they do not exist yet.
 SELECT format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', :'migrate_user')

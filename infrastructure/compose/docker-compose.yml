@@ -19,9 +19,12 @@ services:
       POSTGRES_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?POSTGRES_MIGRATE_PASSWORD is not set in infrastructure/compose/.env}
       POSTGRES_APP_USER: ${POSTGRES_APP_USER:-guardianx_app}
       POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is not set in infrastructure/compose/.env}
-    # Credential guard: fails fast with an actionable message before PostgreSQL
-    # initdb/runtime if a database password is missing, a placeholder, or too
-    # short, then execs the official image entrypoint unchanged.
+    # Credential guard + stale-volume self-heal: fails fast with an actionable
+    # message before PostgreSQL initdb/runtime if a database password is
+    # missing, a placeholder, or too short, and resynchronises role passwords
+    # to the current .env on existing data directories so a leftover volume can
+    # never cause "password authentication failed". The official image
+    # entrypoint is then exec'd unchanged.
     entrypoint:
       - bash
       - /usr/local/bin/guardianx-postgres-entrypoint.sh
@@ -30,9 +33,9 @@ services:
     command: ["postgres"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Runs on a fresh data directory only; the db-init service covers the
-      # first upgrade of existing volumes (re-provision anytime with
-      # `docker compose run --rm db-init`).
+      # Runs on a fresh data directory only (roles/passwords on existing
+      # volumes are reconciled at startup by the entrypoint above; still
+      # re-provision anytime with `docker compose run --rm db-init`).
       - ../docker/db-init.sh:/docker-entrypoint-initdb.d/01-guardianx-db-init.sh:ro
       - ../docker/postgres-entrypoint.sh:/usr/local/bin/guardianx-postgres-entrypoint.sh:ro
     healthcheck:
