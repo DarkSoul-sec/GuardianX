@@ -83,10 +83,34 @@ _check_identifier() {
 # socket where pg_hba.conf trusts local connections, so this does not depend
 # on the (possibly stale) password stored in the database.
 _resync_credentials() {
-  local pg_bin tmp_dir tmp_hba run_postgres
+  local pg_bin="" tmp_dir="" tmp_hba="" run_postgres=()
+
+  # State read by the EXIT trap below. Bash destroys this function's locals
+  # before an EXIT trap runs when set -e unwinds the stack (e.g. the temporary
+  # server failing to start), so the trap must never touch the locals above.
+  # It only reads these pre-initialised globals, keeping it safe under
+  # set -u / nounset even on an unexpected exit.
+  _resync_pg_bin=""
+  _resync_tmp_dir=""
+  _resync_run_postgres=()
+
+  # Stop the temporary server and remove the temp directory if this shell exits
+  # unexpectedly (set -e failure, exit 1, signal) so the temp instance can never
+  # be left running against PGDATA or leak the trust-auth socket directory.
+  _resync_cleanup() {
+    if [[ -n "${_resync_pg_bin:-}" && -n "${_resync_tmp_dir:-}" && -n "${PGDATA:-}" ]]; then
+      "${_resync_run_postgres[@]}" "$_resync_pg_bin/pg_ctl" -D "$PGDATA" -m fast -w -t 30 stop >/dev/null 2>&1 || true
+    fi
+    [[ -n "${_resync_tmp_dir:-}" ]] && rm -rf "$_resync_tmp_dir"
+  }
+  trap _resync_cleanup EXIT
+
   pg_bin="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | head -n 1 || true)"
   [[ -n "$pg_bin" ]] || _fail "could not locate PostgreSQL binaries"
+  _resync_pg_bin="$pg_bin"
+
   tmp_dir="$(mktemp -d)" || _fail "could not create a temporary directory"
+  _resync_tmp_dir="$tmp_dir"
   tmp_hba="$tmp_dir/pg_hba.conf"
   printf 'local all all trust\n' > "$tmp_hba"
 
@@ -97,18 +121,10 @@ _resync_credentials() {
     # must be able to create its socket/lock files inside the temp directory.
     chown postgres:postgres "$tmp_dir"
   fi
-
-  # Stop the temporary server and remove the temp directory if this shell exits
-  # unexpectedly (set -e failure, exit 1, signal) so the temp instance can never
-  # be left running against PGDATA or leak the trust-auth socket directory.
-  _resync_cleanup() {
-    "${run_postgres[@]}" "$pg_bin/pg_ctl" -D "$PGDATA" -m fast -w -t 30 stop >/dev/null 2>&1 || true
-    rm -rf "$tmp_dir"
-  }
-  trap _resync_cleanup EXIT
+  _resync_run_postgres=("${run_postgres[@]}")
 
   "${run_postgres[@]}" "$pg_bin/pg_ctl" -D "$PGDATA" \
-    -o "-c listen_addresses='' -c unix_socket_directories='$tmp_dir' -c hba_file='$tmp_hba' -c logging_collector=off -c log_statement=off" \
+    -o "-c listen_addresses='' -c unix_socket_directories='$tmp_dir' -c hba_file='$tmp_hba' -c logging_collector=off -c log_statement=none" \
     -w -t 60 start
 
   echo "[guardianx-postgres-entrypoint] existing data directory detected: resyncing role credentials to the current environment"
